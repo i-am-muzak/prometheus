@@ -6,14 +6,11 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import router from './router'
 
-import VueKonva from 'vue-konva';
-import Vue3TouchEvents from "vue3-touch-events";
+import "@/assets/style/tailwind.css";
 
 const app = createApp(App)
 
 app.use(createPinia())
 app.use(router)
-app.use(VueKonva);
-app.use(Vue3TouchEvents);
 
 app.mount('#app')

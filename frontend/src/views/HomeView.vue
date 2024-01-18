@@ -7,11 +7,14 @@
       @mousewheel="baseCanvasTouchStart"
       ref="baseCanvas"
     ></canvas>
-    <canvas style="display: none" ref="maskCanvas"></canvas>
+    <canvas class="hidden" ref="maskCanvas"></canvas>
   </div>
 </template>
 
 <script lang="ts">
+import { useToolPanelStore } from "@/stores/ToolPanel";
+import { mapState } from "pinia";
+
 type Point = {
   x: number;
   y: number;
@@ -33,12 +36,16 @@ export default {
       mousePos: { x: 0, y: 0 },
       circleGridOffset: 50,
       scale: 1,
-      tool: "free-pan",
       isGrabbing: false,
       currentOffset: { x: 0, y: 0 },
+      currentMask: [] as Point[],
+      maskData: [] as Point[][],
+      maskBrushOpacity: 0.35,
+      maskBrushColor: '#b523fa'
     };
   },
   computed: {
+    ...mapState(useToolPanelStore, ["currentTool"]),
     computedBaseCanvas(): HTMLCanvasElement {
       return this.$refs.baseCanvas as HTMLCanvasElement;
     },
@@ -103,6 +110,25 @@ export default {
     this.drawGridCircles();
   },
   methods: {
+    drawMaskData() {
+      for (let i = 0; i < this.maskData.length; i++) {
+        const lineData = this.maskData[i];
+        for (let y = 0; y < lineData.length; y++) {
+          const line = lineData[y];
+          this.drawLineOnMaskCanvas(line.x, line.y);
+        }
+      }
+
+      if (this.baseContext && this.maskCanvas) {
+        this.setGlobalAlpha(this.maskBrushOpacity);
+        this.baseContext.drawImage(
+          this.maskCanvas,
+          this.viewportTopLeft.x,
+          this.viewportTopLeft.y
+        );
+        this.setGlobalAlpha(1);
+      }
+    },
     baseCanvasTouchStart(event: WheelEvent) {
       if (this.baseContext) {
         const delta = {
@@ -112,60 +138,78 @@ export default {
         this.currentOffset = this.addPoints(this.currentOffset, delta);
       }
     },
+
     drawMaskMouseDown(event: MouseEvent) {
       // If left click only
       if (event.button === 0) {
         this.isDrawing = true;
-        if (this.maskContext) {
-          this.setGlobalAlpha(1);
-          this.clearBaseCanvas();
-          this.drawGridCircles();
-          this.drawBaseImage();
+        this.setGlobalAlpha(1);
+        this.clearBaseCanvas(this.viewportTopLeft.x, this.viewportTopLeft.y);
+        this.drawGridCircles();
+        this.drawBaseImage();
 
-          if (!this.latestMousePositions.x && !this.latestMousePositions.y) {
-            this.latestMousePositions = {
-              x: event.offsetX,
-              y: event.offsetY,
-            };
-          }
-
-          this.maskContext.beginPath();
-          this.maskContext.lineWidth = 60;
-          this.maskContext.lineCap = "round";
-          this.maskContext.lineJoin = "round";
-          this.maskContext.strokeStyle = "rgba(0, 255, 0)";
-          this.maskContext.lineTo(event.offsetX, event.offsetY);
-          this.maskContext.stroke();
-
+        if (!this.latestMousePositions.x && !this.latestMousePositions.y) {
           this.latestMousePositions = {
             x: event.offsetX,
             y: event.offsetY,
           };
         }
 
+        this.drawLineOnMaskCanvas(
+          event.offsetX + this.viewportTopLeft.x,
+          event.offsetY + this.viewportTopLeft.y
+        );
+
+        this.currentMask.push({
+          x: event.offsetX + this.viewportTopLeft.x,
+          y: event.offsetY + this.viewportTopLeft.y,
+        });
+
+        this.latestMousePositions = {
+          x: event.offsetX,
+          y: event.offsetY,
+        };
+
         if (this.baseContext && this.maskCanvas) {
-          this.baseContext.globalAlpha = 0.2;
-          this.baseContext.drawImage(this.maskCanvas, 0, 0);
+          this.baseContext.globalAlpha = this.maskBrushOpacity;
+          this.baseContext.drawImage(
+            this.maskCanvas,
+            this.viewportTopLeft.x,
+            this.viewportTopLeft.y
+          );
         }
+      }
+    },
+    drawLineOnMaskCanvas(x: number, y: number) {
+      if (this.maskContext) {
+        this.maskContext.beginPath();
+        this.maskContext.lineWidth = 60;
+        this.maskContext.lineCap = "round";
+        this.maskContext.lineJoin = "round";
+        this.maskContext.strokeStyle = this.maskBrushColor;
+        this.maskContext.globalCompositeOperation = this.currentTool === 'eraser' ? 'destination-out' : "source-over";
+        this.maskContext.moveTo(x, y);
+        this.maskContext.lineTo(x, y);
+        this.maskContext.stroke();
       }
     },
     drawMaskMouseMove(event: MouseEvent) {
       if (this.isDrawing) {
         if (this.maskContext) {
           this.setGlobalAlpha(1);
-          this.clearBaseCanvas();
+          this.clearBaseCanvas(this.viewportTopLeft.x, this.viewportTopLeft.y);
           this.drawGridCircles();
           this.drawBaseImage();
 
-          this.maskContext.beginPath();
-          this.maskContext.lineWidth = 60;
-          this.maskContext.lineCap = "round";
-          this.maskContext.lineJoin = "round";
-          this.maskContext.strokeStyle = "rgba(0, 255, 0)";
-          this.maskContext.globalCompositeOperation = "source-over";
-          this.maskContext.moveTo(event.offsetX, event.offsetY);
-          this.maskContext.lineTo(event.offsetX, event.offsetY);
-          this.maskContext.stroke();
+          this.drawLineOnMaskCanvas(
+            event.offsetX + this.viewportTopLeft.x,
+            event.offsetY + this.viewportTopLeft.y
+          );
+
+          this.currentMask.push({
+            x: event.offsetX + this.viewportTopLeft.x,
+            y: event.offsetY + this.viewportTopLeft.y,
+          });
 
           this.latestMousePositions = {
             x: event.offsetX,
@@ -174,14 +218,23 @@ export default {
         }
 
         if (this.baseContext && this.maskCanvas) {
-          this.baseContext.globalAlpha = 0.2;
-          this.baseContext.drawImage(this.maskCanvas, 0, 0);
+          this.baseContext.globalAlpha = this.maskBrushOpacity;
+          this.baseContext.drawImage(
+            this.maskCanvas,
+            this.viewportTopLeft.x,
+            this.viewportTopLeft.y
+          );
         }
       }
     },
     drawMaskMouseUp(event: MouseEvent) {
       if (this.isDrawing) {
         this.isDrawing = false;
+        this.setGlobalAlpha(1);
+
+        if (this.currentMask.length) {
+          this.maskData.push([...this.currentMask]);
+        }
       }
     },
     freePanMouseDown(event: MouseEvent) {
@@ -229,9 +282,24 @@ export default {
         );
       }
     },
-    clearBaseCanvas() {
+    clearBaseCanvas(x: number | boolean = false, y: number | boolean = false) {
       if (this.baseContext) {
-        this.baseContext.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        if (!x && !y) {
+          this.baseContext.clearRect(
+            0,
+            0,
+            window.innerWidth,
+            window.innerHeight
+          );
+        } else {
+          if (typeof x === "number" && typeof y === "number")
+            this.baseContext.clearRect(
+              x,
+              y,
+              window.innerWidth,
+              window.innerHeight
+            );
+        }
       }
     },
     clearMaskCanvas() {
@@ -240,8 +308,9 @@ export default {
       }
     },
     baseCanvasMouseDown(event: MouseEvent) {
-      switch (this.tool) {
+      switch (this.currentTool) {
         case "draw-mask":
+        case "eraser":
           this.drawMaskMouseDown(event);
           break;
 
@@ -254,8 +323,9 @@ export default {
       }
     },
     baseCanvasMouseUp(event: MouseEvent) {
-      switch (this.tool) {
+      switch (this.currentTool) {
         case "draw-mask":
+        case "eraser":
           this.drawMaskMouseUp(event);
           break;
         case "free-pan":
@@ -265,8 +335,9 @@ export default {
       }
     },
     baseCanvasMouseMove(event: MouseEvent) {
-      switch (this.tool) {
+      switch (this.currentTool) {
         case "draw-mask":
+        case "eraser":
           this.drawMaskMouseMove(event);
           break;
 
@@ -287,10 +358,23 @@ export default {
       return { x: p1.x / scale, y: p1.y / scale };
     },
     updateTransform() {
-      if (this.baseContext) {
-        const storedTransform = this.baseContext.getTransform();
-        this.baseContext.canvas.width = this.baseContext.canvas.width;
-        this.baseContext.setTransform(storedTransform);
+      if (this.baseContext && this.baseCanvas) {
+        this.baseContext.setTransform(1, 0, 0, 1, 0, 0);
+
+        this.clearBaseCanvas();
+        this.baseContext.translate(
+          -this.viewportTopLeft.x,
+          -this.viewportTopLeft.y
+        );
+      }
+
+      if (this.maskContext) {
+        this.maskContext.setTransform(1, 0, 0, 1, 0, 0);
+        this.clearMaskCanvas();
+        this.maskContext.translate(
+          -this.viewportTopLeft.x,
+          -this.viewportTopLeft.y
+        );
       }
     },
     drawGridCircles() {
@@ -335,15 +419,14 @@ export default {
             1
           );
 
-          this.baseContext.translate(offsetDiff.x, offsetDiff.y);
           this.viewportTopLeft = this.diffPoints(
             this.viewportTopLeft,
             offsetDiff
           );
-
           this.updateTransform();
           this.drawGridCircles();
           this.drawBaseImage();
+          this.drawMaskData();
         }
       },
       deep: true,

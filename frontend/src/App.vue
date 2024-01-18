@@ -1,7 +1,12 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+import ToolPanel from "@/components/ToolPanel/ToolPanel.vue";
+</script>
 
 <template>
-  <RouterView />
+  <div>
+    <ToolPanel />
+    <RouterView />
+  </div>
 </template>
 
 <style>
