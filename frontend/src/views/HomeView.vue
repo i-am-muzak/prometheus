@@ -6,14 +6,21 @@
       @mousemove="baseCanvasMouseMove"
       @mousewheel="baseCanvasTouchStart"
       ref="baseCanvas"
+      id="baseCanvas"
+      :class="{
+        'cursor-none': ['sketch', 'eraser', 'draw-mask'].includes(currentTool),
+        'cursor-grab': currentTool === 'free-pan',
+      }"
     ></canvas>
     <canvas class="hidden" ref="maskCanvas"></canvas>
+    <EditorCursor :position="mousePos" v-if="['sketch', 'eraser', 'draw-mask'].includes(currentTool)" />
   </div>
 </template>
 
 <script lang="ts">
 import { useToolPanelStore } from "@/stores/ToolPanel";
 import { mapState } from "pinia";
+import EditorCursor from "@/components/EditorCursor/EditorCursor.vue";
 
 type Point = {
   x: number;
@@ -33,7 +40,7 @@ export default {
       },
       baseImage: new Image() as HTMLImageElement,
       viewportTopLeft: { x: 0, y: 0 },
-      mousePos: { x: 0, y: 0 },
+      mousePos: { x: -70, y: -70 },
       circleGridOffset: 50,
       scale: 1,
       isGrabbing: false,
@@ -41,7 +48,7 @@ export default {
       currentMask: [] as Point[],
       maskData: [] as Point[][],
       maskBrushOpacity: 0.35,
-      maskBrushColor: '#b523fa'
+      maskBrushColor: "#b523fa",
     };
   },
   computed: {
@@ -105,6 +112,7 @@ export default {
       "https://static.fuups.ai/public-model-gallery/fuups.ai-8a21ba51-7aef-4b38-9197-1d98a2375216-1702062785338-square.png";
     this.baseImage.onload = () => {
       this.drawBaseImage();
+      this.drawImageStroke();
     };
 
     this.drawGridCircles();
@@ -178,6 +186,8 @@ export default {
             this.viewportTopLeft.y
           );
         }
+
+        this.drawImageStroke();
       }
     },
     drawLineOnMaskCanvas(x: number, y: number) {
@@ -187,7 +197,8 @@ export default {
         this.maskContext.lineCap = "round";
         this.maskContext.lineJoin = "round";
         this.maskContext.strokeStyle = this.maskBrushColor;
-        this.maskContext.globalCompositeOperation = this.currentTool === 'eraser' ? 'destination-out' : "source-over";
+        this.maskContext.globalCompositeOperation =
+          this.currentTool === "eraser" ? "destination-out" : "source-over";
         this.maskContext.moveTo(x, y);
         this.maskContext.lineTo(x, y);
         this.maskContext.stroke();
@@ -225,6 +236,8 @@ export default {
             this.viewportTopLeft.y
           );
         }
+
+        this.drawImageStroke();
       }
     },
     drawMaskMouseUp(event: MouseEvent) {
@@ -278,7 +291,30 @@ export default {
         this.baseContext.drawImage(
           this.baseImage,
           (window.innerWidth - this.baseImage.width) / 2,
-          (window.innerHeight - this.baseImage.height) / 2
+          (window.innerHeight - this.baseImage.height) / 2,
+        );
+      }
+    },
+    drawImageStroke() {
+      if (this.baseContext) {
+        const grad = this.baseContext.createLinearGradient(
+          (window.innerWidth - this.baseImage.width) / 2,
+          (window.innerHeight - this.baseImage.height) / 2,
+          this.baseImage.width + 240,
+          this.baseImage.height + 240
+        );
+
+        grad.addColorStop(0, "purple");
+        grad.addColorStop(1, "pink");
+
+        this.setGlobalAlpha(1);
+        this.baseContext.lineWidth = 3;
+        this.baseContext.strokeStyle = grad;
+        this.baseContext.strokeRect(
+          (window.innerWidth - this.baseImage.width) / 2,
+          (window.innerHeight - this.baseImage.height) / 2,
+          this.baseImage.width,
+          this.baseImage.height
         );
       }
     },
@@ -335,6 +371,11 @@ export default {
       }
     },
     baseCanvasMouseMove(event: MouseEvent) {
+      this.mousePos = {
+        x: event.offsetX,
+        y: event.offsetY,
+      };
+
       switch (this.currentTool) {
         case "draw-mask":
         case "eraser":
@@ -398,17 +439,6 @@ export default {
         this.baseContext.fill();
       }
     },
-    updateMousePos(x: number, y: number) {
-      if (this.baseCanvas) {
-        const viewportMousePos = { x: x, y: y };
-        const topLeftCanvasPos = {
-          x: this.baseCanvas.offsetLeft,
-          y: this.baseCanvas.offsetTop,
-        };
-
-        this.mousePos = this.diffPoints(viewportMousePos, topLeftCanvasPos);
-      }
-    },
   },
   watch: {
     currentOffset: {
@@ -427,10 +457,17 @@ export default {
           this.drawGridCircles();
           this.drawBaseImage();
           this.drawMaskData();
+          this.drawImageStroke()
         }
       },
       deep: true,
     },
   },
+  components: {
+    EditorCursor,
+  },
 };
 </script>
+
+<style lang="less" scoped>
+</style>
